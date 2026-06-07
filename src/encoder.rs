@@ -406,19 +406,19 @@ fn write_moves_info<W: Write>(info: &MovesInfo, writer: &mut W, _version: i32) -
         writer.write_i16::<LE>((ty_raw * 20.0) as i16)?;
     }
 
-    if flags.contains(MoveFlags::SRC_RECT) {
-        if let Some(sr) = &info.source_rectangle {
-            for v in sr {
-                writer.write_i16::<LE>(*v as i16 * 20)?;
-            }
+    if flags.contains(MoveFlags::SRC_RECT)
+        && let Some(sr) = &info.source_rectangle
+    {
+        for v in sr {
+            writer.write_i16::<LE>(*v as i16 * 20)?;
         }
     }
 
-    if flags.contains(MoveFlags::COLOR) {
-        if let Some(c) = &info.color {
-            for v in c {
-                writer.write_u8((v * 255.0) as u8)?;
-            }
+    if flags.contains(MoveFlags::COLOR)
+        && let Some(c) = &info.color
+    {
+        for v in c {
+            writer.write_u8((v * 255.0) as u8)?;
         }
     }
 
