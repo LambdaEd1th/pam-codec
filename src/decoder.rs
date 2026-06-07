@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::error::Result;
 use crate::types::*;
-use byteorder::{ReadBytesExt, LE};
+use byteorder::{LE, ReadBytesExt};
 use std::io::Read;
 
 pub fn decode_pam<R: Read>(reader: &mut R) -> Result<PamInfo> {

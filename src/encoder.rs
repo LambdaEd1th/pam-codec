@@ -363,8 +363,16 @@ fn write_moves_info<W: Write>(info: &MovesInfo, writer: &mut W, _version: i32) -
     // Determine coords type based on transform values
     // LONG_COORDS if either coord exceeds i16 range (in 1/20 units)
     let len = info.transform.len();
-    let tx_raw = if len >= 2 { info.transform[len - 2] } else { 0.0 };
-    let ty_raw = if len >= 2 { info.transform[len - 1] } else { 0.0 };
+    let tx_raw = if len >= 2 {
+        info.transform[len - 2]
+    } else {
+        0.0
+    };
+    let ty_raw = if len >= 2 {
+        info.transform[len - 1]
+    } else {
+        0.0
+    };
     let tx_i16 = (tx_raw * 20.0) as i16;
     let ty_i16 = (ty_raw * 20.0) as i16;
     if (tx_i16 as f64 / 20.0 - tx_raw).abs() > 0.001
