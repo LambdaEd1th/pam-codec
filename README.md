@@ -58,8 +58,8 @@ let pam: PamInfo = serde_json::from_str(&json)?;
 | Type | Description |
 |------|-------------|
 | `PamInfo` | Top-level file: version, frame_rate, position, size, images, sprites |
-| `ImageInfo` | Referenced image: name, size, 6-element affine transform |
-| `SpriteInfo` | Animation layer: name, description, frame_rate, work_area, frames |
+| `ImageInfo` | Referenced image: name, optional size, v1 angle+translation or v2+ affine transform |
+| `SpriteInfo` | Animation layer: optional v4+ name/frame_rate/work_area, frames |
 | `FrameInfo` | Single frame: label, stop flag, commands, add/remove/move operations |
 | `RemovesInfo` | Remove an image/sprite from the display list |
 | `AddsInfo` | Add an image/sprite with transform, blending, timing |
@@ -69,11 +69,11 @@ let pam: PamInfo = serde_json::from_str(&json)?;
 
 | Version | Key differences |
 |---------|----------------|
-| 1 | Image transforms stored as angle + translation (u16 angle / 1000) |
+| 1 | Image transforms stored as angle + translation (i16 angle / 1000) |
 | 2–3 | Image transforms stored as 4×i32 matrix (÷ 1310720) + i16 translation |
 | 4 | Per-sprite frame_rate, string names, size fields on images, optional main sprite |
 | 5 | Explicit work_area fields |
-| 6 | Extended resource index (u16), per-sprite description strings |
+| 6 | Extended resource index (u16), reserved empty string after sprite name |
 
 ## License
 

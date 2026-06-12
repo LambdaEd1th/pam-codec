@@ -10,7 +10,7 @@ pub fn decode_pam<R: Read>(reader: &mut R) -> Result<PamInfo> {
         return Err(Error::InvalidMagic(magic));
     }
 
-    let version = reader.read_i32::<LE>()?;
+    let version = reader.read_u32::<LE>()? as i32;
     if !(1..=6).contains(&version) {
         return Err(Error::VersionOutOfRange(version));
     }
@@ -19,7 +19,7 @@ pub fn decode_pam<R: Read>(reader: &mut R) -> Result<PamInfo> {
 
     let mut position = [0.0; 2];
     for p in &mut position {
-        *p = reader.read_u16::<LE>()? as f64 / 20.0;
+        *p = reader.read_i16::<LE>()? as f64 / 20.0;
     }
 
     let mut size = [0.0; 2];
@@ -36,26 +36,20 @@ pub fn decode_pam<R: Read>(reader: &mut R) -> Result<PamInfo> {
     let sprites_count = reader.read_u16::<LE>()? as usize;
     let mut sprite = Vec::with_capacity(sprites_count);
     for _ in 0..sprites_count {
-        let mut s = read_sprite_info(reader, version)?;
-        if version < 4 {
-            s.frame_rate = frame_rate as f64;
-        }
-        sprite.push(s);
+        sprite.push(read_sprite_info(reader, version)?);
     }
 
-    let mut main_sprite = SpriteInfo::default();
     let has_main_sprite = if version <= 3 {
         true
     } else {
         read_bool(reader)?
     };
 
-    if has_main_sprite {
-        main_sprite = read_sprite_info(reader, version)?;
-        if version < 4 {
-            main_sprite.frame_rate = frame_rate as f64;
-        }
-    }
+    let main_sprite = if has_main_sprite {
+        Some(read_sprite_info(reader, version)?)
+    } else {
+        None
+    };
 
     Ok(PamInfo {
         version,
@@ -81,24 +75,21 @@ fn read_bool<R: Read>(reader: &mut R) -> Result<bool> {
 
 fn read_image_info<R: Read>(reader: &mut R, version: i32) -> Result<ImageInfo> {
     let name = read_string_by_u16(reader)?;
-    let mut size = [-1; 2];
-
-    if version >= 4 {
-        for s in &mut size {
-            *s = reader.read_u16::<LE>()? as i32;
-        }
-    }
+    let size = if version >= 4 {
+        Some([
+            reader.read_i16::<LE>()? as i32,
+            reader.read_i16::<LE>()? as i32,
+        ])
+    } else {
+        None
+    };
 
     let transform: Vec<f64>;
     if version == 1 {
-        let num = reader.read_u16::<LE>()? as f64 / 1000.0;
-        let mut t = vec![0.0; 6];
-        t[0] = num.cos();
-        t[2] = -num.sin();
-        t[1] = num.sin();
-        t[3] = num.cos();
-        t[4] = reader.read_i16::<LE>()? as f64 / 20.0;
-        t[5] = reader.read_i16::<LE>()? as f64 / 20.0;
+        let mut t = vec![0.0; 3];
+        t[0] = reader.read_i16::<LE>()? as f64 / 1000.0;
+        t[1] = reader.read_i16::<LE>()? as f64 / 20.0;
+        t[2] = reader.read_i16::<LE>()? as f64 / 20.0;
         transform = t;
     } else {
         let mut t = vec![0.0; 6];
@@ -110,13 +101,6 @@ fn read_image_info<R: Read>(reader: &mut R, version: i32) -> Result<ImageInfo> {
         t[5] = reader.read_i16::<LE>()? as f64 / 20.0;
         transform = t;
     }
-    // PAM always produces 6-element transforms for images.
-    debug_assert_eq!(
-        transform.len(),
-        6,
-        "ImageInfo transform must have 6 elements"
-    );
-
     Ok(ImageInfo {
         name,
         size,
@@ -126,28 +110,25 @@ fn read_image_info<R: Read>(reader: &mut R, version: i32) -> Result<ImageInfo> {
 
 fn read_sprite_info<R: Read>(reader: &mut R, version: i32) -> Result<SpriteInfo> {
     let mut name = None;
-    let mut description = None;
-    let mut frame_rate = -1.0;
+    let mut frame_rate = None;
 
     if version >= 4 {
         name = Some(read_string_by_u16(reader)?);
         if version >= 6 {
-            description = Some(read_string_by_u16(reader)?);
+            let _reserved = read_string_by_u16(reader)?;
         }
-        frame_rate = reader.read_i32::<LE>()? as f64 / 65536.0;
+        frame_rate = Some(reader.read_i32::<LE>()? as f64 / 65536.0);
     }
 
     let frames_count = reader.read_u16::<LE>()? as usize;
-    let mut work_area = [0, frames_count as i32];
-
-    if version >= 5 {
-        work_area[0] = reader.read_u16::<LE>()? as i32;
-        work_area[1] = reader.read_u16::<LE>()? as i32;
+    let work_area = if version >= 5 {
+        Some([
+            reader.read_i16::<LE>()? as i32,
+            reader.read_i16::<LE>()? as i32,
+        ])
     } else {
-        work_area[0] = 0;
-        work_area[1] = (frames_count as i32).saturating_sub(1);
-    }
-    work_area[1] = frames_count as i32;
+        None
+    };
 
     let mut frame = Vec::with_capacity(frames_count);
     for _ in 0..frames_count {
@@ -156,7 +137,6 @@ fn read_sprite_info<R: Read>(reader: &mut R, version: i32) -> Result<SpriteInfo>
 
     Ok(SpriteInfo {
         name,
-        description,
         frame_rate,
         work_area,
         frame,
@@ -209,10 +189,7 @@ fn read_frame_info<R: Read>(reader: &mut R, version: i32) -> Result<FrameInfo> {
 
     let mut command = Vec::new();
     if flags.contains(FrameFlags::COMMANDS) {
-        let mut count = reader.read_u8()? as usize;
-        if count == 255 {
-            count = reader.read_u16::<LE>()? as usize;
-        }
+        let count = reader.read_u8()? as usize;
         for _ in 0..count {
             let s1 = read_string_by_u16(reader)?;
             let s2 = read_string_by_u16(reader)?;
@@ -231,7 +208,7 @@ fn read_frame_info<R: Read>(reader: &mut R, version: i32) -> Result<FrameInfo> {
 }
 
 fn read_removes_info<R: Read>(reader: &mut R) -> Result<RemovesInfo> {
-    let mut index = reader.read_u16::<LE>()? as i32;
+    let mut index = (reader.read_u16::<LE>()? & 2047) as i32;
     if index == 2047 {
         index = reader.read_i32::<LE>()?;
     }
@@ -254,7 +231,7 @@ fn read_adds_info<R: Read>(reader: &mut R, version: i32) -> Result<AddsInfo> {
     }
 
     let preload_frame = if (num & 8192) != 0 {
-        reader.read_u16::<LE>()? as u32
+        reader.read_i16::<LE>()? as i32
     } else {
         0
     };
@@ -322,9 +299,9 @@ fn read_moves_info<R: Read>(reader: &mut R, _version: i32) -> Result<MovesInfo> 
 
     let mut source_rectangle = None;
     if flags.contains(MoveFlags::SRC_RECT) {
-        let mut sr = [0; 4];
+        let mut sr = [0.0; 4];
         for v in &mut sr {
-            *v = reader.read_i16::<LE>()? as i32 / 20;
+            *v = reader.read_i16::<LE>()? as f64 / 20.0;
         }
         source_rectangle = Some(sr);
     }
@@ -339,9 +316,9 @@ fn read_moves_info<R: Read>(reader: &mut R, _version: i32) -> Result<MovesInfo> 
     }
 
     let sprite_frame_number = if flags.contains(MoveFlags::ANIM_FRAME_NUM) {
-        reader.read_u16::<LE>()? as u32
+        Some(reader.read_i16::<LE>()? as i32)
     } else {
-        0
+        None
     };
 
     Ok(MovesInfo {
