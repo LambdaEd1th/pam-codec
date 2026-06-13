@@ -299,11 +299,16 @@ fn read_moves_info<R: Read>(reader: &mut R, _version: i32) -> Result<MovesInfo> 
 
     let mut source_rectangle = None;
     if flags.contains(MoveFlags::SRC_RECT) {
-        let mut sr = [0.0; 4];
-        for v in &mut sr {
-            *v = reader.read_i16::<LE>()? as f64 / 20.0;
-        }
-        source_rectangle = Some(sr);
+        source_rectangle = Some(Rectangle {
+            position: [
+                reader.read_i16::<LE>()? as f64 / 20.0,
+                reader.read_i16::<LE>()? as f64 / 20.0,
+            ],
+            size: [
+                reader.read_i16::<LE>()? as f64 / 20.0,
+                reader.read_i16::<LE>()? as f64 / 20.0,
+            ],
+        });
     }
 
     let mut color = None;

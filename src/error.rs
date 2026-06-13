@@ -16,6 +16,18 @@ pub enum Error {
     #[error("PAM field {field} out of range: {value}")]
     ValueOutOfRange { field: &'static str, value: i64 },
 
+    /// A required field is missing for the selected PAM version.
+    #[error("PAM field {field} is required")]
+    MissingRequiredField { field: &'static str },
+
+    /// A transform does not match the selected PAM version's definition.
+    #[error("PAM field {field} has invalid transform length {actual}, expected {expected}")]
+    InvalidTransform {
+        field: &'static str,
+        expected: &'static str,
+        actual: usize,
+    },
+
     /// I/O error during read or write.
     #[error("IO error: {0}")]
     Io(#[from] io::Error),

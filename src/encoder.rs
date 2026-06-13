@@ -20,12 +20,12 @@ pub fn encode_pam<W: Write>(pam: &PamInfo, writer: &mut W) -> Result<()> {
         writer.write_u16::<LE>(round_u16(*s * 20.0))?;
     }
 
-    writer.write_u16::<LE>(pam.image.len() as u16)?;
+    write_u16_len(pam.image.len(), "pam.image", writer)?;
     for img in &pam.image {
         write_image_info(img, writer, pam.version)?;
     }
 
-    writer.write_u16::<LE>(pam.sprite.len() as u16)?;
+    write_u16_len(pam.sprite.len(), "pam.sprite", writer)?;
     for sprite in &pam.sprite {
         write_sprite_info(sprite, writer, pam.version)?;
     }
@@ -37,8 +37,12 @@ pub fn encode_pam<W: Write>(pam: &PamInfo, writer: &mut W) -> Result<()> {
             write_sprite_info(main_sprite, writer, pam.version)?;
         }
     } else {
-        let default_main = SpriteInfo::default();
-        let main_sprite = pam.main_sprite.as_ref().unwrap_or(&default_main);
+        let main_sprite = pam
+            .main_sprite
+            .as_ref()
+            .ok_or(Error::MissingRequiredField {
+                field: "main_sprite",
+            })?;
         write_sprite_info(main_sprite, writer, pam.version)?;
     }
 
@@ -68,8 +72,35 @@ fn write_u8_count<W: Write>(count: usize, field: &'static str, writer: &mut W) -
     Ok(())
 }
 
+fn write_u16_len<W: Write>(count: usize, field: &'static str, writer: &mut W) -> Result<()> {
+    if count > u16::MAX as usize {
+        return Err(Error::ValueOutOfRange {
+            field,
+            value: count as i64,
+        });
+    }
+    writer.write_u16::<LE>(count as u16)?;
+    Ok(())
+}
+
+fn write_variant_count<W: Write>(count: usize, field: &'static str, writer: &mut W) -> Result<()> {
+    if count < 255 {
+        writer.write_u8(count as u8)?;
+    } else {
+        writer.write_u8(255)?;
+        write_u16_len(count, field, writer)?;
+    }
+    Ok(())
+}
+
 fn write_string_by_u16<W: Write>(s: &str, writer: &mut W) -> Result<()> {
     let bytes = s.as_bytes();
+    if bytes.len() > u16::MAX as usize {
+        return Err(Error::ValueOutOfRange {
+            field: "string.length",
+            value: bytes.len() as i64,
+        });
+    }
     writer.write_u16::<LE>(bytes.len() as u16)?;
     writer.write_all(bytes)?;
     Ok(())
@@ -78,47 +109,36 @@ fn write_string_by_u16<W: Write>(s: &str, writer: &mut W) -> Result<()> {
 fn write_image_info<W: Write>(img: &ImageInfo, writer: &mut W, version: i32) -> Result<()> {
     write_string_by_u16(&img.name, writer)?;
 
-    debug_assert!(
-        img.transform.len() == 6
-            || img.transform.len() == 3
-            || img.transform.len() == 2
-            || img.transform.is_empty(),
-        "ImageInfo transform must have 2, 3, 6 elements, or be empty, got {}",
-        img.transform.len()
-    );
-
     if version >= 4 {
-        let size = img.size.unwrap_or([0, 0]);
+        let size = img.size.ok_or(Error::MissingRequiredField {
+            field: "image.size",
+        })?;
         writer.write_i16::<LE>(size[0] as i16)?;
         writer.write_i16::<LE>(size[1] as i16)?;
     }
 
     if version == 1 {
-        let (angle, tx, ty) = match img.transform.len() {
-            0 => (0.0, 0.0, 0.0),
-            2 => (0.0, img.transform[0], img.transform[1]),
-            3 => (img.transform[0], img.transform[1], img.transform[2]),
-            _ => (
-                f64::atan2(img.transform[1], img.transform[0]),
-                img.transform[4],
-                img.transform[5],
-            ),
-        };
+        if img.transform.len() != 3 {
+            return Err(Error::InvalidTransform {
+                field: "image.transform",
+                expected: "3 values for PAM v1",
+                actual: img.transform.len(),
+            });
+        }
+        let (angle, tx, ty) = (img.transform[0], img.transform[1], img.transform[2]);
         writer.write_i16::<LE>(round_i16(angle * 1000.0))?;
         writer.write_i16::<LE>(round_i16(tx * 20.0))?;
         writer.write_i16::<LE>(round_i16(ty * 20.0))?;
     } else {
         let t = &img.transform;
-        let (a, b, c, d, tx, ty) = match t.len() {
-            0 => (1.0, 0.0, 0.0, 1.0, 0.0, 0.0),
-            2 => (1.0, 0.0, 0.0, 1.0, t[0], t[1]),
-            3 => {
-                let cos = t[0].cos();
-                let sin = t[0].sin();
-                (cos, sin, -sin, cos, t[1], t[2])
-            }
-            _ => (t[0], t[1], t[2], t[3], t[4], t[5]),
-        };
+        if t.len() != 6 {
+            return Err(Error::InvalidTransform {
+                field: "image.transform",
+                expected: "6 values for PAM v2+",
+                actual: t.len(),
+            });
+        }
+        let (a, b, c, d, tx, ty) = (t[0], t[1], t[2], t[3], t[4], t[5]);
         let matrix_rate = 1310720.0;
 
         writer.write_i32::<LE>(round_i32(a * matrix_rate))?;
@@ -134,17 +154,25 @@ fn write_image_info<W: Write>(img: &ImageInfo, writer: &mut W, version: i32) -> 
 
 fn write_sprite_info<W: Write>(sprite: &SpriteInfo, writer: &mut W, version: i32) -> Result<()> {
     if version >= 4 {
-        write_string_by_u16(sprite.name.as_deref().unwrap_or(""), writer)?;
+        let name = sprite.name.as_deref().ok_or(Error::MissingRequiredField {
+            field: "sprite.name",
+        })?;
+        write_string_by_u16(name, writer)?;
         if version >= 6 {
             write_string_by_u16("", writer)?;
         }
-        writer.write_i32::<LE>(round_i32(sprite.frame_rate.unwrap_or(0.0) * 65536.0))?;
+        let frame_rate = sprite.frame_rate.ok_or(Error::MissingRequiredField {
+            field: "sprite.frame_rate",
+        })?;
+        writer.write_i32::<LE>(round_i32(frame_rate * 65536.0))?;
     }
 
-    writer.write_u16::<LE>(sprite.frame.len() as u16)?;
+    write_u16_len(sprite.frame.len(), "sprite.frame", writer)?;
 
     if version >= 5 {
-        let work_area = sprite.work_area.unwrap_or([0, sprite.frame.len() as i32]);
+        let work_area = sprite.work_area.ok_or(Error::MissingRequiredField {
+            field: "sprite.work_area",
+        })?;
         writer.write_i16::<LE>(work_area[0] as i16)?;
         writer.write_i16::<LE>(work_area[1] as i16)?;
     }
@@ -181,12 +209,7 @@ fn write_frame_info<W: Write>(frame: &FrameInfo, writer: &mut W, version: i32) -
 
     if flags.contains(FrameFlags::REMOVES) {
         let count = frame.remove.len();
-        if count >= 255 {
-            writer.write_u8(255)?;
-            writer.write_u16::<LE>(count as u16)?;
-        } else {
-            writer.write_u8(count as u8)?;
-        }
+        write_variant_count(count, "frame.remove", writer)?;
         for rem in &frame.remove {
             write_removes_info(rem, writer)?;
         }
@@ -194,12 +217,7 @@ fn write_frame_info<W: Write>(frame: &FrameInfo, writer: &mut W, version: i32) -
 
     if flags.contains(FrameFlags::ADDS) {
         let count = frame.append.len();
-        if count >= 255 {
-            writer.write_u8(255)?;
-            writer.write_u16::<LE>(count as u16)?;
-        } else {
-            writer.write_u8(count as u8)?;
-        }
+        write_variant_count(count, "frame.append", writer)?;
         for add in &frame.append {
             write_adds_info(add, writer, version)?;
         }
@@ -207,12 +225,7 @@ fn write_frame_info<W: Write>(frame: &FrameInfo, writer: &mut W, version: i32) -
 
     if flags.contains(FrameFlags::MOVES) {
         let count = frame.change.len();
-        if count >= 255 {
-            writer.write_u8(255)?;
-            writer.write_u16::<LE>(count as u16)?;
-        } else {
-            writer.write_u8(count as u8)?;
-        }
+        write_variant_count(count, "frame.change", writer)?;
         for change in &frame.change {
             write_moves_info(change, writer, version)?;
         }
@@ -287,9 +300,21 @@ fn write_adds_info<W: Write>(info: &AddsInfo, writer: &mut W, version: i32) -> R
 
     // Resource
     if version >= 6 && info.resource >= 255 {
+        if info.resource > u16::MAX as u32 {
+            return Err(Error::ValueOutOfRange {
+                field: "append.resource",
+                value: info.resource as i64,
+            });
+        }
         writer.write_u8(255)?;
         writer.write_u16::<LE>(info.resource as u16)?;
     } else {
+        if info.resource > u8::MAX as u32 {
+            return Err(Error::ValueOutOfRange {
+                field: "append.resource",
+                value: info.resource as i64,
+            });
+        }
         writer.write_u8((info.resource & 0xFF) as u8)?;
     }
 
@@ -377,8 +402,8 @@ fn write_moves_info<W: Write>(info: &MovesInfo, writer: &mut W, _version: i32) -
     if flags.contains(MoveFlags::SRC_RECT)
         && let Some(sr) = &info.source_rectangle
     {
-        for v in sr {
-            writer.write_i16::<LE>(round_i16(*v * 20.0))?;
+        for v in [sr.position[0], sr.position[1], sr.size[0], sr.size[1]] {
+            writer.write_i16::<LE>(round_i16(v * 20.0))?;
         }
     }
 
