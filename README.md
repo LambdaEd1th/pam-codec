@@ -18,7 +18,7 @@ for character animations, UI effects, and other sprite-based visuals.
 
 ```toml
 [dependencies]
-pam-codec = { path = "../pam-codec" }
+pam-codec = { git = "https://github.com/LambdaEd1th/pam-codec" }
 ```
 
 ## Usage
