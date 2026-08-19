@@ -77,4 +77,4 @@ let pam: PamInfo = serde_json::from_str(&json)?;
 
 ## License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE).
+AGPL-3.0-or-later. See [LICENSE](LICENSE).
