@@ -84,13 +84,12 @@ fn read_image_info<R: Read>(reader: &mut R, version: i32) -> Result<ImageInfo> {
         None
     };
 
-    let transform: Vec<f64>;
-    if version == 1 {
+    let transform = if version == 1 {
         let mut t = vec![0.0; 3];
         t[0] = reader.read_i16::<LE>()? as f64 / 1000.0;
         t[1] = reader.read_i16::<LE>()? as f64 / 20.0;
         t[2] = reader.read_i16::<LE>()? as f64 / 20.0;
-        transform = t;
+        t
     } else {
         let mut t = vec![0.0; 6];
         t[0] = reader.read_i32::<LE>()? as f64 / 1310720.0;
@@ -99,8 +98,8 @@ fn read_image_info<R: Read>(reader: &mut R, version: i32) -> Result<ImageInfo> {
         t[3] = reader.read_i32::<LE>()? as f64 / 1310720.0;
         t[4] = reader.read_i16::<LE>()? as f64 / 20.0;
         t[5] = reader.read_i16::<LE>()? as f64 / 20.0;
-        transform = t;
-    }
+        t
+    };
     Ok(ImageInfo {
         name,
         size,
@@ -282,16 +281,17 @@ fn read_moves_info<R: Read>(reader: &mut R, _version: i32) -> Result<MovesInfo> 
         transform.resize(2, 0.0);
     }
 
-    let val1;
-    let val2;
-
-    if flags.contains(MoveFlags::LONG_COORDS) {
-        val1 = reader.read_i32::<LE>()? as f64 / 20.0;
-        val2 = reader.read_i32::<LE>()? as f64 / 20.0;
+    let (val1, val2) = if flags.contains(MoveFlags::LONG_COORDS) {
+        (
+            reader.read_i32::<LE>()? as f64 / 20.0,
+            reader.read_i32::<LE>()? as f64 / 20.0,
+        )
     } else {
-        val1 = reader.read_i16::<LE>()? as f64 / 20.0;
-        val2 = reader.read_i16::<LE>()? as f64 / 20.0;
-    }
+        (
+            reader.read_i16::<LE>()? as f64 / 20.0,
+            reader.read_i16::<LE>()? as f64 / 20.0,
+        )
+    };
 
     let len = transform.len();
     transform[len - 2] = val1;
