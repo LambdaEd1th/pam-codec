@@ -3,18 +3,30 @@ use std::fs::File;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
-/// Real PAM samples live in the Toolkit repository at `<repo>/sample`. The
-/// codec is also maintained as a standalone repository, where that directory
-/// does not exist, so missing samples are skipped instead of failing.
-/// `PAM_CODEC_SAMPLE_DIR` can point at any directory with the same layout.
+/// Real PAM samples are stored in this repository under `sample/` and are also
+/// consumed by the Toolkit workspace. `PAM_CODEC_SAMPLE_DIR` can point at any
+/// directory with the same layout.
 fn sample_dir() -> PathBuf {
     std::env::var_os("PAM_CODEC_SAMPLE_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../..")
-                .join("sample")
-        })
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("sample"))
+}
+
+fn collect_pams(directory: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_pams(&path, out);
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("pam"))
+        {
+            out.push(path);
+        }
+    }
 }
 
 /// The encoder canonicalizes a zero rotation: it omits the `ROTATE` flag for
@@ -36,10 +48,9 @@ fn canonicalize_zero_rotation(pam: &mut PamInfo) {
 #[test]
 fn sample_pams_decode_encode_decode() {
     let sample_dir = sample_dir();
-    let samples = [
-        sample_dir.join("aloe").join("ALOE.PAM"),
-        sample_dir.join("sunflower").join("SUNFLOWER.PAM"),
-    ];
+    let mut samples = Vec::new();
+    collect_pams(&sample_dir, &mut samples);
+    samples.sort();
     let mut checked = 0;
 
     for path in samples {

@@ -78,3 +78,10 @@ let pam: PamInfo = serde_json::from_str(&json)?;
 ## License
 
 AGPL-3.0-or-later. See [LICENSE](LICENSE).
+
+## Test samples
+
+The `sample/` directory contains real PAM files and their texture PNGs used by
+the round-trip tests. It is kept with the repository for local and CI testing.
+Set `PAM_CODEC_SAMPLE_DIR` to run the test against another sample directory with
+the same layout.

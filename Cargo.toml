@@ -6,6 +6,7 @@ authors = ["ed1th"]
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/LambdaEd1th/pam-codec"
 description = "PAM binary format codec for PopCap/PvZ2 animations"
+exclude = ["sample/"]
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
